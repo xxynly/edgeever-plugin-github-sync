@@ -612,6 +612,60 @@ console.log("\n[15] Token 权限不足时给出可操作指引");
   forceForbidden = false;
 }
 
+console.log("\n[16] 尚未同步到服务器的本地笔记不推送");
+{
+  remote.clear();
+  calls.length = 0;
+  // EdgeEver 对未同步笔记使用 local_ 前缀的临时 ID，同步后会换成正式 ID。
+  // 若此时推送，会留下永远不再更新的孤儿文件。
+  const localNote = makeNote({
+    id: "local_634d4c34-036f-448b-95c2-462cbd174ad5",
+    title: "草稿",
+    contentHash: "h-local",
+    contentMarkdown: "本地草稿内容",
+  });
+  const host = createHost({ notes: [localNote], notebooks: NOTEBOOKS, settings: SETTINGS });
+  const dispose = plugin.activate(host.context);
+  await sleep(90);
+
+  check("没有生成任何文件", remote.size === 0, [...remote.keys()].join(", "));
+  check("也没有发出写请求", calls.filter((call) => call.method === "PUT").length === 0);
+
+  dispose();
+}
+
+console.log("\n[17] 空笔记跳过；无标题但有正文的用正文首行命名");
+{
+  remote.clear();
+  calls.length = 0;
+  const blank = makeNote({
+    id: "memo_blank01",
+    title: "",
+    contentHash: "h-blank",
+    contentMarkdown: "",
+  });
+  const untitled = makeNote({
+    id: "memo_untitled1",
+    title: "",
+    contentHash: "h-untitled",
+    contentMarkdown: "## 会议纪要\n\n今天讨论了同步方案。",
+  });
+  const host = createHost({ notes: [blank, untitled], notebooks: NOTEBOOKS, settings: SETTINGS });
+  const dispose = plugin.activate(host.context);
+  await sleep(120);
+
+  const keys = [...remote.keys()];
+  check("只推送了 1 个文件（空笔记被跳过）", keys.length === 1, keys.join(", "));
+  check(
+    "无标题笔记用正文首行命名",
+    keys.includes("notes/技术笔记/会议纪要.md"),
+    keys.join(", "),
+  );
+  check("没有产生 untitled 文件", !keys.some((key) => key.includes("untitled")), keys.join(", "));
+
+  dispose();
+}
+
 /* ---------------- 汇总 ---------------- */
 
 console.log(`\n${"=".repeat(46)}`);

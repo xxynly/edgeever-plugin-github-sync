@@ -57,6 +57,20 @@ function truncateUtf8(value, maxBytes) {
   return `${output}...`;
 }
 
+/** 标题优先；无标题时取正文首个非空行；都为空时用「未命名」 */
+function deriveFileName(note) {
+  const title = String(note.title ?? "").trim();
+  if (title) return sanitizeSegment(title);
+
+  const firstLine = String(note.contentMarkdown ?? "")
+    .split("\n")
+    .map((line) => line.replace(/^#+\s*/, "").trim())
+    .find((line) => line.length > 0);
+  if (firstLine) return sanitizeSegment(firstLine);
+
+  return "未命名";
+}
+
 function joinPath(...parts) {
   return parts
     .map((part) => String(part ?? "").replace(/^\/+|\/+$/g, ""))
@@ -325,7 +339,7 @@ class SyncEngine {
   /** 计算笔记对应的仓库文件路径，遇到同名冲突时追加 ID 后缀 */
   allocatePath(note) {
     const directory = joinPath(this.config.pathPrefix, this.notebookPath(note.notebookId));
-    const base = truncateUtf8(sanitizeSegment(note.title) || note.id, MAX_PATH_SEGMENT_BYTES);
+    const base = truncateUtf8(deriveFileName(note), MAX_PATH_SEGMENT_BYTES);
     const preferred = joinPath(directory, `${base}.md`);
 
     const owners = this.pathOwners();
@@ -352,6 +366,21 @@ class SyncEngine {
 
   /** 推送单篇笔记；内容与路径都未变化时直接跳过 */
   async pushNote(note) {
+    // EdgeEver 对「尚未同步到服务器的本地笔记」使用 local_ 前缀的临时 ID，
+    // 该 ID 在同步完成后会被替换成正式 ID。若此时推送，仓库里会留下一个
+    // 永远不会再被更新的孤儿文件（正式 ID 到来后会另建一个文件）。
+    // 参考 apps/web/src/lib/selected-markdown-export.ts:10 的同类判断。
+    if (String(note.id ?? "").startsWith("local_")) {
+      return { skipped: true, reason: "unsynced-local" };
+    }
+
+    // 标题与正文都为空的白板笔记没有同步价值，推送只会产生 untitled 垃圾文件。
+    const hasTitle = Boolean(String(note.title ?? "").trim());
+    const hasBody = Boolean(String(note.contentMarkdown ?? "").trim());
+    if (!hasTitle && !hasBody) {
+      return { skipped: true, reason: "empty-note" };
+    }
+
     const record = this.state.notes[note.id] ?? null;
     const path = this.allocatePath(note);
 
@@ -475,10 +504,15 @@ class SyncEngine {
     const entries = [...this.pending.values()];
     this.pending.clear();
     for (const entry of entries) clearTimeout(entry.timer);
+
+    let pushed = 0;
     for (const entry of entries) {
-      await this.enqueue(() => this.pushNote(entry.note));
+      await this.enqueue(async () => {
+        const result = await this.pushNote(entry.note);
+        if (result?.pushed) pushed += 1;
+      });
     }
-    return entries.length;
+    return pushed;
   }
 
   cancelAll() {
@@ -600,8 +634,12 @@ export default {
         title: "GitHub 同步：立即提交未同步的改动",
         run: guard(async () => {
           if (!(await bootstrap())) return;
-          const count = await engine.flush();
-          context.ui.showNotice(count > 0 ? `已提交 ${count} 篇待同步笔记` : "当前没有待同步的改动");
+          const pushed = await engine.flush();
+          context.ui.showNotice(
+            pushed > 0
+              ? `已提交 ${pushed} 篇笔记`
+              : "没有需要提交的改动（空笔记与尚未同步到服务器的笔记会自动跳过）",
+          );
         }),
       }),
     );
