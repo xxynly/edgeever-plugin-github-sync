@@ -27,6 +27,15 @@ async function fakeGitHub(url, init = {}) {
     return json({ default_branch: "main", permissions: { push: true }, private: false });
   }
 
+  // 分支查询（verify 会校验分支是否存在）
+  const branchMatch = path.match(/^\/repos\/([^/]+)\/([^/]+)\/branches\/(.+)$/);
+  if (branchMatch) {
+    const branch = decodeURIComponent(branchMatch[3]);
+    return branch === "main"
+      ? json({ name: "main" })
+      : json({ message: "Branch not found" }, 404);
+  }
+
   // Contents API
   const match = path.match(/^\/repos\/([^/]+)\/([^/]+)\/contents\/(.+)$/);
   if (!match) return json({ message: "Not Found" }, 404);
@@ -527,6 +536,33 @@ console.log("\n[13] 离开页面时立即提交（不等静默期）");
   dispose();
   delete globalThis.document;
   delete globalThis.window;
+}
+
+console.log("\n[14] 分支名填错时给出明确提示");
+{
+  const host = createHost({
+    notes: [],
+    notebooks: NOTEBOOKS,
+    settings: { ...SETTINGS, "github.branch": "master" },
+  });
+  const dispose = plugin.activate(host.context);
+  await sleep(80);
+
+  await host.commands.get("github-sync-verify").run();
+  await sleep(40);
+
+  check(
+    "指出分支不存在",
+    host.notices.some((message) => message.includes("分支") && message.includes("不存在")),
+    JSON.stringify(host.notices),
+  );
+  check(
+    "并给出仓库实际的默认分支",
+    host.notices.some((message) => message.includes("main")),
+    JSON.stringify(host.notices),
+  );
+
+  dispose();
 }
 
 /* ---------------- 汇总 ---------------- */

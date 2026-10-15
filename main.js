@@ -110,7 +110,7 @@ class GitHubClient {
       403: "Token 权限不足或触发限流",
       404: "仓库或分支不存在，或 Token 无权访问",
       409: "文件冲突，请重试",
-      422: "请求被拒绝，请检查分支与文件路径",
+      422: "分支不存在，或文件路径与内容被拒绝",
     }[response.status];
     return new Error(`GitHub ${response.status}${hint ? `（${hint}）` : ""}${detail ? `：${detail}` : ""}`);
   }
@@ -156,19 +156,31 @@ class GitHubClient {
     return true;
   }
 
-  /** 轻量连通性与权限自检 */
+  /** 轻量连通性、权限与分支自检 */
   async verify() {
     const { owner, repo } = this.config;
-    const repoResponse = await this.fetch(`${API_ORIGIN}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
-      method: "GET",
-      headers: this.headers(),
-    });
+    const repoPath = `${API_ORIGIN}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const repoResponse = await this.fetch(repoPath, { method: "GET", headers: this.headers() });
     if (!repoResponse.ok) throw await this.describeError(repoResponse);
     const data = await repoResponse.json();
     const permissions = data?.permissions ?? {};
     if (permissions.push === false) {
       throw new Error("Token 对该仓库没有写入权限，请授予 Contents 读写权限");
     }
+
+    // 分支必须存在，否则后续写入一定失败。这里提前暴露，避免"权限正常但同步失败"。
+    const branchResponse = await this.fetch(
+      `${repoPath}/branches/${encodeURIComponent(this.config.branch)}`,
+      { method: "GET", headers: this.headers() },
+    );
+    if (branchResponse.status === 404) {
+      const fallback = data?.default_branch;
+      throw new Error(
+        `分支「${this.config.branch}」不存在${fallback ? `，该仓库的默认分支是「${fallback}」` : ""}`,
+      );
+    }
+    if (!branchResponse.ok) throw await this.describeError(branchResponse);
+
     return { defaultBranch: data?.default_branch ?? null, private: Boolean(data?.private) };
   }
 }
