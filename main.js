@@ -15,7 +15,7 @@ const API_VERSION = "2022-11-28";
 const API_ORIGIN = "https://api.github.com";
 const MAX_PATH_SEGMENT_BYTES = 100;
 /** 默认静默期（秒）：停止编辑多久之后才自动提交一次 */
-const DEFAULT_IDLE_SECONDS = 60;
+const DEFAULT_IDLE_SECONDS = 180;
 
 /* ------------------------------------------------------------------ */
 /* 工具函数                                                            */
@@ -304,6 +304,18 @@ class SyncEngine {
         lastSyncAt: stored.lastSyncAt ?? null,
       };
     }
+
+    // 清理历史遗留的临时 ID 记录。这些笔记在服务器上并不存在（正式 ID 才是），
+    // 它们的记录会白白占用路径，导致正式 ID 只能退让成 "标题-后缀.md"。
+    // 剔除后路径得以释放，正式 ID 下次推送时会自动迁移回正常文件名。
+    let removed = 0;
+    for (const key of Object.keys(this.state.notes)) {
+      if (key.startsWith("memo_local_") || key.startsWith("local_")) {
+        delete this.state.notes[key];
+        removed += 1;
+      }
+    }
+    if (removed > 0) await this.saveState();
   }
 
   async saveState() {
@@ -366,11 +378,13 @@ class SyncEngine {
 
   /** 推送单篇笔记；内容与路径都未变化时直接跳过 */
   async pushNote(note) {
-    // EdgeEver 对「尚未同步到服务器的本地笔记」使用 local_ 前缀的临时 ID，
-    // 该 ID 在同步完成后会被替换成正式 ID。若此时推送，仓库里会留下一个
+    // EdgeEver 对「尚未同步到服务器的本地笔记」使用 memo_local_ 前缀的临时 ID，
+    // 同步完成后会被替换成正式 ID（memo_<hex>）。若此时推送，仓库里会留下一个
     // 永远不会再被更新的孤儿文件（正式 ID 到来后会另建一个文件）。
-    // 参考 apps/web/src/lib/selected-markdown-export.ts:10 的同类判断。
-    if (String(note.id ?? "").startsWith("local_")) {
+    // 权威依据：crates/desktop-sidecar/src/memo.rs:639
+    //   memo_id.starts_with("memo_local_")
+    const noteId = String(note.id ?? "");
+    if (noteId.startsWith("memo_local_") || noteId.startsWith("local_")) {
       return { skipped: true, reason: "unsynced-local" };
     }
 

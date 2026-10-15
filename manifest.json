@@ -2,7 +2,7 @@
   "type": "plugin",
   "id": "com.xxynly.github-sync",
   "name": "GitHub Sync",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "apiVersion": "2",
   "settingsUi": "host",
   "description": "保存笔记后自动推送到 GitHub 仓库，以 Markdown 源文件形式保存。",
@@ -75,7 +75,7 @@
         "type": "number",
         "label": "静默提交延迟（秒）",
         "description": "停止编辑多久后自动提交一次。EdgeEver 每停手 1.2 秒就会保存，该值越大提交越少",
-        "default": 60,
+        "default": 180,
         "min": 5,
         "max": 1800,
         "step": 5

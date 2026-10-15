@@ -616,17 +616,28 @@ console.log("\n[16] 尚未同步到服务器的本地笔记不推送");
 {
   remote.clear();
   calls.length = 0;
-  // EdgeEver 对未同步笔记使用 local_ 前缀的临时 ID，同步后会换成正式 ID。
-  // 若此时推送，会留下永远不再更新的孤儿文件。
+  // EdgeEver 的本地临时 ID 真实格式是 memo_local_<纳秒时间戳>
+  // （依据 crates/desktop-sidecar/src/memo.rs:639 的 starts_with("memo_local_")）。
+  // 若此时推送，会留下永远不再更新的孤儿文件，正式 ID 到来后又另建一个文件。
   const localNote = makeNote({
-    id: "local_634d4c34-036f-448b-95c2-462cbd174ad5",
+    id: "memo_local_1792083438388084000",
     title: "草稿",
     contentHash: "h-local",
     contentMarkdown: "本地草稿内容",
   });
-  const host = createHost({ notes: [localNote], notebooks: NOTEBOOKS, settings: SETTINGS });
+  const legacyLocalNote = makeNote({
+    id: "local_634d4c34-036f-448b-95c2-462cbd174ad5",
+    title: "草稿二",
+    contentHash: "h-local2",
+    contentMarkdown: "另一种临时 ID 格式",
+  });
+  const host = createHost({
+    notes: [localNote, legacyLocalNote],
+    notebooks: NOTEBOOKS,
+    settings: SETTINGS,
+  });
   const dispose = plugin.activate(host.context);
-  await sleep(90);
+  await sleep(120);
 
   check("没有生成任何文件", remote.size === 0, [...remote.keys()].join(", "));
   check("也没有发出写请求", calls.filter((call) => call.method === "PUT").length === 0);
@@ -697,6 +708,45 @@ console.log("\n[18] 工作区拉到新内容后立即同步到仓库");
     "拉到新内容后立即推送到仓库",
     remote.has("notes/技术笔记/来自另一终端.md"),
     [...remote.keys()].join(", "),
+  );
+
+  dispose();
+}
+
+console.log("\n[19] 清理遗留的临时 ID 记录后，正式 ID 迁移回正常文件名");
+{
+  remote.clear();
+  calls.length = 0;
+
+  const localId = "memo_local_1792083438388084000";
+  const realId = "memo_7d3f59b7bcfc4c4099d98e30f9a86ccb";
+  const note = makeNote({
+    id: realId,
+    title: "123",
+    contentHash: "h-real",
+    contentMarkdown: "正式内容",
+  });
+
+  const host = createHost({ notes: [note], notebooks: NOTEBOOKS, settings: SETTINGS });
+  // 预置历史状态：临时 ID 曾占用 "123.md"，若不清理，正式 ID 只能退让成 "123-<后缀>.md"
+  host.store.set("github-sync-state-v1", {
+    notes: { [localId]: { hash: "h-local", path: "notes/技术笔记/123.md" } },
+    lastSyncAt: null,
+  });
+
+  const dispose = plugin.activate(host.context);
+  await sleep(150);
+
+  const keys = [...remote.keys()];
+  check(
+    "正式 ID 用回正常文件名",
+    keys.includes("notes/技术笔记/123.md"),
+    keys.join(", "),
+  );
+  check(
+    "没有产生带后缀的重复文件",
+    !keys.some((key) => /123-.+\.md$/.test(key)),
+    keys.join(", "),
   );
 
   dispose();
