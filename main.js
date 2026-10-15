@@ -110,10 +110,12 @@ class GitHubClient {
     // 否则用户只会看到一句无从下手的英文。
     if (detail.includes("Resource not accessible by personal access token")) {
       return new Error(
-        `GitHub ${response.status}：这个 Token 没有访问该仓库的权限。`
+        `GitHub ${response.status}：这个 Token 的权限不足。`
+        + "注意 Fine-grained Token 创建时所有权限默认都是 No access，"
+        + "只配 Repository access 是不够的，必须另外手动开启权限项。"
         + "请到 GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens，"
-        + "打开该 Token 并确认两点：① Repository access 里勾选了目标仓库；"
-        + "② Permissions → Repository permissions → Contents 设为 Read and write。"
+        + "打开该 Token 确认两点：① Repository access 里已勾选目标仓库；"
+        + "② 下方 Permissions → Repository permissions → 找到 Contents，设为 Read and write。"
         + "改完立即生效，无需重新生成 Token。",
       );
     }

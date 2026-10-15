@@ -588,8 +588,13 @@ console.log("\n[15] Token 权限不足时给出可操作指引");
 
   const notices = host.notices.join(" | ");
   check(
-    "指出是 Token 没有该仓库权限",
-    notices.includes("没有访问该仓库的权限"),
+    "指出是 Token 权限不足",
+    notices.includes("Token 的权限不足"),
+    notices,
+  );
+  check(
+    "说明权限默认是 No access（这是最容易踩的坑）",
+    notices.includes("No access"),
     notices,
   );
   check(
