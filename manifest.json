@@ -1,0 +1,113 @@
+{
+  "type": "plugin",
+  "id": "com.xxynly.github-sync",
+  "name": "GitHub Sync",
+  "version": "1.0.0",
+  "apiVersion": "2",
+  "settingsUi": "host",
+  "description": "保存笔记后自动推送到 GitHub 仓库，以 Markdown 源文件形式保存。",
+  "author": "xxynly",
+  "locales": {
+    "zh-CN": {
+      "name": "GitHub 同步",
+      "description": "保存笔记后自动推送到 GitHub 仓库，以 Markdown 源文件形式保存。"
+    }
+  },
+  "entry": "./main.js",
+  "platforms": ["web", "desktop"],
+  "permissions": [
+    "notes:read",
+    "metadata:read",
+    "network",
+    "storage",
+    "ui:commands",
+    "ui:notices"
+  ],
+  "networkHosts": ["api.github.com"],
+  "settings": {
+    "fields": [
+      {
+        "key": "owner",
+        "type": "text",
+        "label": "GitHub 用户名或组织",
+        "description": "例如 xxynly",
+        "placeholder": "xxynly",
+        "required": true
+      },
+      {
+        "key": "repo",
+        "type": "text",
+        "label": "仓库名",
+        "description": "用于存放笔记的仓库，例如 notes",
+        "placeholder": "notes",
+        "required": true
+      },
+      {
+        "key": "token",
+        "type": "secret",
+        "label": "GitHub Token",
+        "description": "细粒度 Token，需授予该仓库的 Contents 读写权限",
+        "required": true
+      },
+      {
+        "key": "branch",
+        "type": "text",
+        "label": "分支",
+        "description": "推送到哪个分支，留空则为 main",
+        "default": "main"
+      },
+      {
+        "key": "pathPrefix",
+        "type": "text",
+        "label": "仓库内目录",
+        "description": "笔记存放的目录，留空则放在仓库根目录",
+        "default": "notes"
+      },
+      {
+        "key": "autoPush",
+        "type": "boolean",
+        "label": "保存后自动推送",
+        "description": "关闭后仅在手动执行命令时同步",
+        "default": true
+      },
+      {
+        "key": "debounceSeconds",
+        "type": "number",
+        "label": "静默提交延迟（秒）",
+        "description": "停止编辑多久后自动提交一次。EdgeEver 每停手 1.2 秒就会保存，该值越大提交越少",
+        "default": 60,
+        "min": 5,
+        "max": 1800,
+        "step": 5
+      },
+      {
+        "key": "flushOnHide",
+        "type": "boolean",
+        "label": "离开页面时立即提交",
+        "description": "切走标签页或关闭页面时，把待提交的改动立即推送出去",
+        "default": true
+      },
+      {
+        "key": "frontmatter",
+        "type": "boolean",
+        "label": "写入 YAML 头信息",
+        "description": "在文件开头写入 title、tags、更新时间等元数据",
+        "default": true
+      },
+      {
+        "key": "mirrorDelete",
+        "type": "boolean",
+        "label": "删除笔记时同步删除文件",
+        "description": "关闭后，仓库中已推送的文件会被保留",
+        "default": false
+      },
+      {
+        "key": "syncOnStartup",
+        "type": "boolean",
+        "label": "启动时全量补推",
+        "description": "应用打开时，把尚未推送或内容已变化的笔记补齐",
+        "default": true
+      }
+    ]
+  }
+}

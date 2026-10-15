@@ -1,0 +1,10 @@
+{
+  "name": "edgeever-plugin-github-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EdgeEver 插件：保存笔记后自动推送到 GitHub 仓库",
+  "scripts": {
+    "test": "node test/mock-test.mjs"
+  }
+}
