@@ -584,6 +584,21 @@ export default {
       }),
     );
 
+    // 工作区从服务器拉到新内容后立即比对同步。
+    // EdgeEver 的跨终端同步是轮询式的（后台最多 5 分钟一次，切回窗口会立即刷新），
+    // 拉到的新内容不一定触发 note.updated，因此这里主动做一次全量比对，
+    // 避免"在另一台终端改的笔记要等下次打开页面才推到仓库"。
+    let lastWorkspaceSyncAt = 0;
+    disposers.push(
+      context.events.on("workspace.synced", ({ changed }) => {
+        if (!changed) return;
+        const now = Date.now();
+        if (now - lastWorkspaceSyncAt < 60_000) return;
+        lastWorkspaceSyncAt = now;
+        void engine.enqueue(() => engine.fullSync({ silent: true }));
+      }),
+    );
+
     // 命令：立即全量同步
     disposers.push(
       context.commands.register({

@@ -666,6 +666,42 @@ console.log("\n[17] 空笔记跳过；无标题但有正文的用正文首行命
   dispose();
 }
 
+console.log("\n[18] 工作区拉到新内容后立即同步到仓库");
+{
+  remote.clear();
+  calls.length = 0;
+  // 用可变数组，模拟"另一台终端新增了笔记，本终端随后拉取到"
+  const notes = [];
+  const host = createHost({ notes, notebooks: NOTEBOOKS, settings: SETTINGS });
+  const dispose = plugin.activate(host.context);
+  await sleep(90);
+  calls.length = 0;
+
+  host.emit("workspace.synced", { bootstrapped: false, changed: 0 });
+  await sleep(80);
+  check(
+    "changed 为 0 时不触发同步",
+    calls.filter((call) => call.method === "PUT").length === 0,
+  );
+
+  notes.push(makeNote({
+    id: "memo_remote1",
+    title: "来自另一终端",
+    contentHash: "h-remote",
+    contentMarkdown: "# 来自另一终端\n\n同步测试",
+  }));
+  host.emit("workspace.synced", { bootstrapped: false, changed: 1 });
+  await sleep(180);
+
+  check(
+    "拉到新内容后立即推送到仓库",
+    remote.has("notes/技术笔记/来自另一终端.md"),
+    [...remote.keys()].join(", "),
+  );
+
+  dispose();
+}
+
 /* ---------------- 汇总 ---------------- */
 
 console.log(`\n${"=".repeat(46)}`);
