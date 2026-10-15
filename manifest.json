@@ -2,7 +2,7 @@
   "type": "plugin",
   "id": "com.xxynly.github-sync",
   "name": "GitHub Sync",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "apiVersion": "2",
   "settingsUi": "host",
   "description": "保存笔记后自动推送到 GitHub 仓库，以 Markdown 源文件形式保存。",

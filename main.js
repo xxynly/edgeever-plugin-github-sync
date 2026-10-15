@@ -105,6 +105,19 @@ class GitHubClient {
     } catch {
       /* 响应体不是 JSON，忽略 */
     }
+
+    // Fine-grained Token 权限不足时 GitHub 固定返回这句，直接给出可操作指引，
+    // 否则用户只会看到一句无从下手的英文。
+    if (detail.includes("Resource not accessible by personal access token")) {
+      return new Error(
+        `GitHub ${response.status}：这个 Token 没有访问该仓库的权限。`
+        + "请到 GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens，"
+        + "打开该 Token 并确认两点：① Repository access 里勾选了目标仓库；"
+        + "② Permissions → Repository permissions → Contents 设为 Read and write。"
+        + "改完立即生效，无需重新生成 Token。",
+      );
+    }
+
     const hint = {
       401: "Token 无效或已过期",
       403: "Token 权限不足或触发限流",
@@ -156,19 +169,33 @@ class GitHubClient {
     return true;
   }
 
-  /** 轻量连通性、权限与分支自检 */
+  /** 轻量连通性、Token 权限与分支自检 */
   async verify() {
     const { owner, repo } = this.config;
     const repoPath = `${API_ORIGIN}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
     const repoResponse = await this.fetch(repoPath, { method: "GET", headers: this.headers() });
     if (!repoResponse.ok) throw await this.describeError(repoResponse);
     const data = await repoResponse.json();
-    const permissions = data?.permissions ?? {};
-    if (permissions.push === false) {
-      throw new Error("Token 对该仓库没有写入权限，请授予 Contents 读写权限");
-    }
 
-    // 分支必须存在，否则后续写入一定失败。这里提前暴露，避免"权限正常但同步失败"。
+    // 注意：响应里的 permissions 反映的是「当前用户对该仓库的权限」，
+    // 而不是「这个 Token 的权限」。Token 权限不足时它依然可能为 true，
+    // 所以必须真正打一次 Contents 接口才能验证 Token 是否可用。
+    const contentsResponse = await this.fetch(
+      `${repoPath}/contents/?ref=${encodeURIComponent(this.config.branch)}`,
+      { method: "GET", headers: this.headers() },
+    );
+    if (contentsResponse.status === 403) throw await this.describeError(contentsResponse);
+    if (contentsResponse.status === 404) {
+      const fallback = data?.default_branch;
+      throw new Error(
+        `分支「${this.config.branch}」不存在${fallback ? `，该仓库的默认分支是「${fallback}」` : ""}`,
+      );
+    }
+    if (!contentsResponse.ok) throw await this.describeError(contentsResponse);
+
+    // 分支校验属于辅助诊断：能确认分支不存在就报错；
+    // 若该端点本身因权限或限流不可用，不应阻塞正常的同步流程。
+    let branchNote = "";
     const branchResponse = await this.fetch(
       `${repoPath}/branches/${encodeURIComponent(this.config.branch)}`,
       { method: "GET", headers: this.headers() },
@@ -179,9 +206,13 @@ class GitHubClient {
         `分支「${this.config.branch}」不存在${fallback ? `，该仓库的默认分支是「${fallback}」` : ""}`,
       );
     }
-    if (!branchResponse.ok) throw await this.describeError(branchResponse);
+    if (branchResponse.status === 403) branchNote = "（分支校验被 GitHub 拒绝，已跳过）";
 
-    return { defaultBranch: data?.default_branch ?? null, private: Boolean(data?.private) };
+    return {
+      defaultBranch: data?.default_branch ?? null,
+      private: Boolean(data?.private),
+      branchNote,
+    };
   }
 }
 
@@ -539,7 +570,8 @@ export default {
           if (!(await bootstrap())) return;
           const info = await engine.client.verify();
           context.ui.showNotice(
-            `连接正常，可写入。默认分支 ${info.defaultBranch ?? "未知"}${info.private ? "，私有仓库" : ""}`,
+            `连接正常，Token 可读写。默认分支 ${info.defaultBranch ?? "未知"}`
+            + `${info.private ? "，私有仓库" : ""}${info.branchNote ?? ""}`,
           );
         }),
       }),

@@ -10,6 +10,8 @@ import plugin from "../main.js";
 const remote = new Map(); // path -> { content, sha }
 let shaCounter = 0;
 const calls = [];
+/** 置为 true 时，所有请求都返回 fine-grained token 权限不足的 403 */
+let forceForbidden = false;
 
 function fakeSha() {
   shaCounter += 1;
@@ -21,6 +23,10 @@ async function fakeGitHub(url, init = {}) {
   const parsed = new URL(url);
   const path = decodeURIComponent(parsed.pathname);
   calls.push({ method, path, body: init.body ? JSON.parse(init.body) : null });
+
+  if (forceForbidden) {
+    return json({ message: "Resource not accessible by personal access token" }, 403);
+  }
 
   // 仓库信息
   if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) {
@@ -37,9 +43,14 @@ async function fakeGitHub(url, init = {}) {
   }
 
   // Contents API
-  const match = path.match(/^\/repos\/([^/]+)\/([^/]+)\/contents\/(.+)$/);
+  const match = path.match(/^\/repos\/([^/]+)\/([^/]+)\/contents\/?(.*)$/);
   if (!match) return json({ message: "Not Found" }, 404);
   const filePath = match[3];
+
+  // 目录列表请求（verify 用来探测 Token 是否具备 Contents 权限）
+  if (!filePath) {
+    return json([...remote.keys()].map((name) => ({ type: "file", name })));
+  }
 
   if (method === "GET") {
     const existing = remote.get(filePath);
@@ -563,6 +574,37 @@ console.log("\n[14] 分支名填错时给出明确提示");
   );
 
   dispose();
+}
+
+console.log("\n[15] Token 权限不足时给出可操作指引");
+{
+  forceForbidden = true;
+  const host = createHost({ notes: [], notebooks: NOTEBOOKS, settings: SETTINGS });
+  const dispose = plugin.activate(host.context);
+  await sleep(80);
+
+  await host.commands.get("github-sync-verify").run();
+  await sleep(40);
+
+  const notices = host.notices.join(" | ");
+  check(
+    "指出是 Token 没有该仓库权限",
+    notices.includes("没有访问该仓库的权限"),
+    notices,
+  );
+  check(
+    "给出 Contents 需设为 Read and write 的指引",
+    notices.includes("Contents") && notices.includes("Read and write"),
+    notices,
+  );
+  check(
+    "给出 Repository access 需勾选仓库的指引",
+    notices.includes("Repository access"),
+    notices,
+  );
+
+  dispose();
+  forceForbidden = false;
 }
 
 /* ---------------- 汇总 ---------------- */
