@@ -598,20 +598,40 @@ export default {
       }),
     );
 
-    // 工作区从服务器拉到新内容后立即比对同步。
-    // EdgeEver 的跨终端同步是轮询式的（后台最多 5 分钟一次，切回窗口会立即刷新），
-    // 拉到的新内容不一定触发 note.updated，因此这里主动做一次全量比对，
-    // 避免"在另一台终端改的笔记要等下次打开页面才推到仓库"。
-    let lastWorkspaceSyncAt = 0;
+    // EdgeEver 的部分操作不会给插件派发任何事件 —— repository-events.ts
+    // 只包装了 create / update / delete / restore / merge / sync 等，
+    // **moveMemos（移动笔记到其他笔记本）不在其中**。
+    // 因此除 note.* 事件外，还需要在有把握的时机主动全量比对一次：
+    //   1) 工作区从服务器拉到新内容（workspace.synced 且 changed > 0）
+    //   2) 窗口重新获得焦点 / 页面重新可见
+    // 三者共用节流。路径变化由既有的迁移逻辑处理：写新路径 + 删旧路径。
+    const CATCH_UP_THROTTLE_MS = 60_000;
+    let lastCatchUpAt = 0;
+    const scheduleCatchUp = () => {
+      const now = Date.now();
+      if (now - lastCatchUpAt < CATCH_UP_THROTTLE_MS) return;
+      lastCatchUpAt = now;
+      void engine.enqueue(() => engine.fullSync({ silent: true }));
+    };
+
     disposers.push(
       context.events.on("workspace.synced", ({ changed }) => {
-        if (!changed) return;
-        const now = Date.now();
-        if (now - lastWorkspaceSyncAt < 60_000) return;
-        lastWorkspaceSyncAt = now;
-        void engine.enqueue(() => engine.fullSync({ silent: true }));
+        if (changed > 0) scheduleCatchUp();
       }),
     );
+
+    if (typeof document !== "undefined" && typeof window !== "undefined") {
+      const catchUpWhenVisible = () => {
+        if (document.visibilityState !== "visible") return;
+        scheduleCatchUp();
+      };
+      window.addEventListener("focus", catchUpWhenVisible);
+      document.addEventListener("visibilitychange", catchUpWhenVisible);
+      disposers.push(() => {
+        window.removeEventListener("focus", catchUpWhenVisible);
+        document.removeEventListener("visibilitychange", catchUpWhenVisible);
+      });
+    }
 
     // 命令：立即全量同步
     disposers.push(

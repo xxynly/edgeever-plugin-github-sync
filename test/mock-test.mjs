@@ -752,6 +752,66 @@ console.log("\n[19] 清理遗留的临时 ID 记录后，正式 ID 迁移回正�
   dispose();
 }
 
+console.log("\n[20] 移动笔记（EdgeEver 不派发事件）后，靠焦点兜底完成路径迁移");
+{
+  remote.clear();
+  calls.length = 0;
+
+  const listeners = {};
+  globalThis.window = {
+    addEventListener: (type, handler) => {
+      (listeners[type] ??= []).push(handler);
+    },
+    removeEventListener: () => {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener: (type, handler) => {
+      (listeners[type] ??= []).push(handler);
+    },
+    removeEventListener: () => {},
+  };
+
+  const note = makeNote({
+    id: "memo_move001",
+    title: "会被移动的笔记",
+    contentHash: "h-move",
+    contentMarkdown: "# 会被移动的笔记\n\n内容",
+  });
+  const host = createHost({ notes: [note], notebooks: NOTEBOOKS, settings: SETTINGS });
+  const dispose = plugin.activate(host.context);
+  await sleep(140);
+
+  check(
+    "初始位置在根笔记本下",
+    remote.has("notes/技术笔记/会被移动的笔记.md"),
+    [...remote.keys()].join(", "),
+  );
+
+  // 模拟用户把笔记拖到子笔记本。EdgeEver 的 moveMemos 不会派发任何插件事件。
+  note.notebookId = "nb_child";
+  note.contentHash = "h-move-2";
+
+  // 触发窗口焦点，走兜底的全量比对
+  for (const handler of listeners.focus ?? []) handler();
+  await sleep(200);
+
+  check(
+    "新位置已生成",
+    remote.has("notes/技术笔记/架构设计/会被移动的笔记.md"),
+    [...remote.keys()].join(", "),
+  );
+  check(
+    "旧位置已清理",
+    !remote.has("notes/技术笔记/会被移动的笔记.md"),
+    [...remote.keys()].join(", "),
+  );
+
+  dispose();
+  delete globalThis.window;
+  delete globalThis.document;
+}
+
 /* ---------------- 汇总 ---------------- */
 
 console.log(`\n${"=".repeat(46)}`);
