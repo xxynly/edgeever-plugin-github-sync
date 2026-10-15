@@ -2,7 +2,7 @@
   "type": "plugin",
   "id": "com.xxynly.github-sync",
   "name": "GitHub Sync",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "apiVersion": "2",
   "settingsUi": "host",
   "description": "保存笔记后自动推送到 GitHub 仓库，以 Markdown 源文件形式保存。",
@@ -84,8 +84,8 @@
         "key": "sync.mirror.delete",
         "type": "boolean",
         "label": "删除笔记时同步删除文件",
-        "description": "关闭后，仓库中已推送的文件会被保留",
-        "default": false
+        "description": "开启后仓库与 EdgeEver 保持镜像。注意 EdgeEver 的删除是移入回收站，恢复笔记后文件会自动重新推送",
+        "default": true
       },
       {
         "key": "sync.on.startup",
