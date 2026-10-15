@@ -199,22 +199,22 @@ class SyncEngine {
 
   async readConfig() {
     const get = (key) => this.context.settings.get(key);
-    const [owner, repo, token, branch, pathPrefix, autoPush, debounce, frontmatter, mirrorDelete, syncOnStartup, flushOnHide] =
+    const [owner, repo, token, branch, pathPrefix, frontmatter, autoPush, idleSeconds, mirrorDelete, syncOnStartup, flushOnHide] =
       await Promise.all([
-        get("owner"),
-        get("repo"),
-        get("token"),
-        get("branch"),
-        get("pathPrefix"),
-        get("autoPush"),
-        get("debounceSeconds"),
-        get("frontmatter"),
-        get("mirrorDelete"),
-        get("syncOnStartup"),
-        get("flushOnHide"),
+        get("github.owner"),
+        get("github.repo"),
+        get("github.token"),
+        get("github.branch"),
+        get("notes.path"),
+        get("notes.frontmatter"),
+        get("sync.auto"),
+        get("sync.idle.seconds"),
+        get("sync.mirror.delete"),
+        get("sync.on.startup"),
+        get("sync.flush.on.hide"),
       ]);
 
-    const seconds = Number(debounce);
+    const seconds = Number(idleSeconds);
     return {
       owner: String(owner ?? "").trim(),
       repo: String(repo ?? "").trim(),

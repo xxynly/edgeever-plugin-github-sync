@@ -128,19 +128,21 @@ https://github.com/xxynly/edgeever-plugin-github-sync
 
 进入插件的设置页，填写：
 
-| 设置项 | 说明 |
-|---|---|
-| GitHub 用户名或组织 | 例如 `xxynly` |
-| 仓库名 | 例如 `notes` |
-| GitHub Token | 粘贴上一步生成的 `github_pat_...`（加密保存，不会回显） |
-| 分支 | 默认 `main` |
-| 仓库内目录 | 默认 `notes`，笔记会放在这个目录下 |
-| 保存后自动推送 | 默认开启 |
-| 静默提交延迟（秒） | 默认 60。停止编辑多久后提交 |
-| 离开页面时立即提交 | 默认开启 |
-| 写入 YAML 头信息 | 默认开启 |
-| 删除笔记时同步删除文件 | 默认关闭 |
-| 启动时全量补推 | 默认开启 |
+| 设置项 | 键名 | 说明 |
+| :--- | :--- | :--- |
+| GitHub 用户名或组织 | `github.owner` | 例如 `xxynly` |
+| 仓库名 | `github.repo` | 例如 `notes` |
+| GitHub Token | `github.token` | 粘贴生成的 `github_pat_...`（加密保存，不回显） |
+| 分支 | `github.branch` | 默认 `main`。填什么就推送到哪个分支 |
+| 仓库内目录 | `notes.path` | 默认 `notes`，留空则放在仓库根目录 |
+| 写入 YAML 头信息 | `notes.frontmatter` | 默认开启 |
+| 保存后自动推送 | `sync.auto` | 默认开启 |
+| 静默提交延迟（秒） | `sync.idle.seconds` | 默认 60。停止编辑多久后提交 |
+| 删除笔记时同步删除文件 | `sync.mirror.delete` | 默认关闭 |
+| 启动时全量补推 | `sync.on.startup` | 默认开启 |
+| 离开页面时立即提交 | `sync.flush.on.hide` | 默认开启 |
+
+> 设置键名必须是小写字母、数字、点、横线或下划线，且以小写字母开头（EdgeEver 的强制约束）。
 
 ---
 

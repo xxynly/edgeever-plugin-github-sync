@@ -157,17 +157,17 @@ function makeNote(overrides = {}) {
 }
 
 const SETTINGS = {
-  owner: "xxynly",
-  repo: "notes",
-  token: "github_pat_test",
-  branch: "main",
-  pathPrefix: "notes",
-  autoPush: true,
-  debounceSeconds: 0,
-  frontmatter: true,
-  mirrorDelete: false,
-  syncOnStartup: true,
-  flushOnHide: true,
+  "github.owner": "xxynly",
+  "github.repo": "notes",
+  "github.token": "github_pat_test",
+  "github.branch": "main",
+  "notes.path": "notes",
+  "notes.frontmatter": true,
+  "sync.auto": true,
+  "sync.idle.seconds": 0,
+  "sync.mirror.delete": false,
+  "sync.on.startup": true,
+  "sync.flush.on.hide": true,
 };
 
 /* ---------------- 用例 ---------------- */
@@ -263,7 +263,7 @@ console.log("\n[4] 连续编辑合并为一次推送");
   remote.clear();
   calls.length = 0;
   const note = makeNote({ contentHash: "h0" });
-  const host = createHost({ notes: [note], notebooks: NOTEBOOKS, settings: { ...SETTINGS, debounceSeconds: 0.15 } });
+  const host = createHost({ notes: [note], notebooks: NOTEBOOKS, settings: { ...SETTINGS, "sync.idle.seconds": 0.15 } });
   const dispose = plugin.activate(host.context);
   await sleep(220);
 
@@ -332,7 +332,7 @@ console.log("\n[7] 开启镜像删除后同步删除文件");
   const host = createHost({
     notes: [note],
     notebooks: NOTEBOOKS,
-    settings: { ...SETTINGS, mirrorDelete: true },
+    settings: { ...SETTINGS, "sync.mirror.delete": true },
   });
   const dispose = plugin.activate(host.context);
   await sleep(60);
@@ -373,7 +373,7 @@ console.log("\n[9] 未配置时给出提示且不发请求");
   const host = createHost({
     notes: [makeNote()],
     notebooks: NOTEBOOKS,
-    settings: { ...SETTINGS, token: "" },
+    settings: { ...SETTINGS, "github.token": "" },
   });
   const dispose = plugin.activate(host.context);
   await sleep(60);
@@ -441,7 +441,7 @@ console.log("\n[12] 持续写作：全程只在停手后提交一次");
   const host = createHost({
     notes: [note],
     notebooks: NOTEBOOKS,
-    settings: { ...SETTINGS, debounceSeconds: 0.3 },
+    settings: { ...SETTINGS, "sync.idle.seconds": 0.3 },
   });
   const dispose = plugin.activate(host.context);
   await sleep(150);
@@ -500,7 +500,7 @@ console.log("\n[13] 离开页面时立即提交（不等静默期）");
   const host = createHost({
     notes: [note],
     notebooks: NOTEBOOKS,
-    settings: { ...SETTINGS, debounceSeconds: 600 },
+    settings: { ...SETTINGS, "sync.idle.seconds": 600 },
   });
   const dispose = plugin.activate(host.context);
   await sleep(150);
