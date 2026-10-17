@@ -87,6 +87,8 @@ function createHost({ notes, notebooks, settings }) {
   const listeners = new Map();
   const commands = new Map();
   const notices = [];
+  const panels = new Map();
+  const openedPanels = [];
   const settingsMap = new Map(Object.entries(settings));
 
   const context = {
@@ -116,7 +118,18 @@ function createHost({ notes, notebooks, settings }) {
         return () => {};
       },
     },
-    ui: { showNotice: (message) => notices.push(message) },
+    ui: {
+      showNotice: (message) => notices.push(message),
+      panels: {
+        register: (panel) => {
+          panels.set(panel.id, panel);
+          return () => panels.delete(panel.id);
+        },
+        open: async (id) => {
+          openedPanels.push(id);
+        },
+      },
+    },
     network: { fetch: fakeGitHub },
   };
 
@@ -125,6 +138,8 @@ function createHost({ notes, notebooks, settings }) {
     listeners,
     commands,
     notices,
+    panels,
+    openedPanels,
     settingsMap,
     store,
     emit: (event, payload) => {
@@ -415,7 +430,12 @@ console.log("\n[10] 权限自检命令");
   const dispose = plugin.activate(host.context);
   await sleep(60);
 
-  check("注册了 4 个命令", host.commands.size === 4, [...host.commands.keys()].join(", "));
+  check("注册了 5 个命令", host.commands.size === 5, [...host.commands.keys()].join(", "));
+  check(
+    "注册了同步控制台面板",
+    host.panels.has("github-sync-dashboard"),
+    [...host.panels.keys()].join(", "),
+  );
   await host.commands.get("github-sync-verify").run();
   await sleep(20);
   check(

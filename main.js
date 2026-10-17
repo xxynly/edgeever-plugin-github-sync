@@ -241,7 +241,7 @@ class SyncEngine {
     this.context = context;
     this.config = null;
     this.client = null;
-    this.state = { notes: {}, lastSyncAt: null };
+    this.state = { notes: {}, lastSyncAt: null, history: [] };
     this.notebooks = new Map();
     this.chain = Promise.resolve();
     /** noteId -> { note, timer }：已排队、等待静默期结束的待推送项 */
@@ -302,6 +302,7 @@ class SyncEngine {
       this.state = {
         notes: stored.notes && typeof stored.notes === "object" ? stored.notes : {},
         lastSyncAt: stored.lastSyncAt ?? null,
+        history: Array.isArray(stored.history) ? stored.history : [],
       };
     }
 
@@ -320,6 +321,13 @@ class SyncEngine {
 
   async saveState() {
     await this.context.storage.set(STORAGE_KEY, this.state);
+  }
+
+  /** 记录一条同步历史，供面板展示（最多保留 20 条） */
+  recordHistory(path, action) {
+    const list = Array.isArray(this.state.history) ? this.state.history : [];
+    list.unshift({ path, action, at: Date.now() });
+    this.state.history = list.slice(0, 20);
   }
 
   async refreshNotebooks() {
@@ -419,6 +427,7 @@ class SyncEngine {
     }
 
     this.state.notes[note.id] = { hash: note.contentHash, path, sha: result.sha, at: Date.now() };
+    this.recordHistory(path, action);
     await this.saveState();
     return { pushed: true, path };
   }
@@ -429,6 +438,7 @@ class SyncEngine {
     if (!this.config.mirrorDelete) return { skipped: true };
 
     await this.client.deleteFile(record.path, `sync(delete): ${noteId}`);
+    this.recordHistory(record.path, "delete");
     delete this.state.notes[noteId];
     await this.saveState();
     return { deleted: true, path: record.path };
@@ -689,6 +699,288 @@ export default {
               ? `已提交 ${pushed} 篇笔记`
               : "没有需要提交的改动（空笔记与尚未同步到服务器的笔记会自动跳过）",
           );
+        }),
+      }),
+    );
+
+    // 同步控制台面板。
+    // 宿主负责页头 / 工具栏 / 空状态，内容区由插件自绘，
+    // 因此视觉可以完全按设计稿实现，并自动跟随 EdgeEver 的主题变量。
+    disposers.push(
+      context.ui.panels.register({
+        id: "github-sync-dashboard",
+        title: "GitHub 同步",
+        purpose: "dashboard",
+        presentation: "dialog",
+        mount(container, { shell, requestClose }) {
+          let activeTab = "overview";
+          let status = { kind: "checking", text: "正在检查连接…", detail: "" };
+          let alive = true;
+
+          const el = (tag, styles, text) => {
+            const node = document.createElement(tag);
+            if (styles) node.setAttribute("style", styles);
+            if (text !== undefined) node.textContent = text;
+            return node;
+          };
+
+          const relativeTime = (timestamp) => {
+            if (!timestamp) return "从未";
+            const diff = Date.now() - timestamp;
+            if (diff < 60_000) return "刚刚";
+            if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+            if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+            return `${Math.floor(diff / 86_400_000)} 天前`;
+          };
+
+          const repoLabel = () => {
+            const cfg = engine.config ?? {};
+            if (!cfg.owner || !cfg.repo) return "尚未配置仓库";
+            const prefix = cfg.pathPrefix ? ` · ${cfg.pathPrefix}/` : "";
+            return `${cfg.owner}/${cfg.repo} · ${cfg.branch}${prefix}`;
+          };
+
+          const statusPalette = () => {
+            if (status.kind === "ok") {
+              return { bg: "var(--color-emerald-50,#ecfdf5)", fg: "var(--color-emerald-700,#047857)" };
+            }
+            if (status.kind === "error") {
+              return { bg: "var(--color-destructive,#fef2f2)", fg: "var(--color-destructive-foreground,#b91c1c)" };
+            }
+            return { bg: "var(--color-muted,#f1f5f9)", fg: "var(--color-muted-foreground,#475569)" };
+          };
+
+          const buildStatusBar = () => {
+            const { bg, fg } = statusPalette();
+            const bar = el(
+              "div",
+              `display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:var(--radius-md,8px);background:${bg};`,
+            );
+            const dot = el("span", `width:8px;height:8px;border-radius:50%;background:${fg};flex-shrink:0;`);
+            const label = el("span", `font-size:13px;font-weight:500;color:${fg};`, status.text);
+            bar.append(dot, label);
+            if (status.detail) {
+              bar.append(
+                el("span", "font-size:13px;color:var(--color-muted-foreground,#64748b);margin-left:auto;", status.detail),
+              );
+            }
+            return bar;
+          };
+
+          const buildMetric = (label, value) => {
+            const card = el(
+              "div",
+              "background:var(--color-secondary,#f8fafc);border-radius:var(--radius-md,8px);padding:14px 16px;min-width:0;",
+            );
+            card.append(
+              el("p", "font-size:13px;color:var(--color-muted-foreground,#64748b);margin:0 0 6px;", label),
+              el("p", "font-size:24px;font-weight:500;margin:0;line-height:1.2;", String(value)),
+            );
+            return card;
+          };
+
+          const buildHistoryRows = (entries) => {
+            const list = el(
+              "div",
+              "border:0.5px solid var(--color-border,#e2e8f0);border-radius:var(--radius-lg,12px);overflow:hidden;",
+            );
+            if (entries.length === 0) {
+              list.append(
+                el("p", "font-size:13px;color:var(--color-muted-foreground,#64748b);margin:0;padding:16px;", "还没有同步记录"),
+              );
+              return list;
+            }
+            entries.forEach((entry, index) => {
+              const row = el(
+                "div",
+                `display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 14px;${
+                  index === entries.length - 1 ? "" : "border-bottom:0.5px solid var(--color-border,#e2e8f0);"
+                }`,
+              );
+              const left = el("div", "min-width:0;");
+              const fileName = String(entry.path ?? "").split("/").pop() ?? "";
+              const dir = String(entry.path ?? "").split("/").slice(0, -1).join(" / ");
+              left.append(
+                el(
+                  "p",
+                  "font-size:13px;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+                  entry.action === "delete" ? `${fileName}（已删除）` : fileName,
+                ),
+              );
+              if (dir) {
+                left.append(el("p", "font-size:12px;color:var(--color-muted-foreground,#94a3b8);margin:2px 0 0;", dir));
+              }
+              row.append(left, el("span", "font-size:13px;color:var(--color-muted-foreground,#64748b);flex-shrink:0;", relativeTime(entry.at)));
+              list.append(row);
+            });
+            return list;
+          };
+
+          const buildOverview = () => {
+            const fragment = document.createDocumentFragment();
+            const metrics = el("div", "display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;");
+            metrics.append(
+              buildMetric("已跟踪笔记", Object.keys(engine.state.notes).length),
+              buildMetric("待提交", engine.pending.size),
+              buildMetric("上次同步", engine.state.lastSyncAt ? relativeTime(engine.state.lastSyncAt) : "从未"),
+            );
+            fragment.append(metrics);
+
+            fragment.append(el("p", "font-size:13px;font-weight:500;margin:20px 0 8px;", "最近同步"));
+            fragment.append(buildHistoryRows((engine.state.history ?? []).slice(0, 4)));
+            return fragment;
+          };
+
+          const buildHistory = () => {
+            const fragment = document.createDocumentFragment();
+            fragment.append(el("p", "font-size:13px;font-weight:500;margin:0 0 8px;", `全部记录（最近 ${(engine.state.history ?? []).length} 条）`));
+            fragment.append(buildHistoryRows(engine.state.history ?? []));
+            return fragment;
+          };
+
+          const buildDiagnostics = () => {
+            const cfg = engine.config ?? {};
+            const fragment = document.createDocumentFragment();
+            const list = el(
+              "div",
+              "border:0.5px solid var(--color-border,#e2e8f0);border-radius:var(--radius-lg,12px);overflow:hidden;",
+            );
+            const rows = [
+              ["仓库", cfg.owner && cfg.repo ? `${cfg.owner}/${cfg.repo}` : "未填写"],
+              ["分支", cfg.branch || "main"],
+              ["仓库内目录", cfg.pathPrefix || "（根目录）"],
+              ["Token", cfg.token ? `已配置（${String(cfg.token).slice(0, 7)}…）` : "未填写"],
+              ["YAML 头信息", cfg.frontmatter ? "写入" : "不写入"],
+              ["静默提交延迟", `${Math.round((cfg.debounceMs ?? 0) / 1000)} 秒`],
+              ["离开页面时提交", cfg.flushOnHide ? "开启" : "关闭"],
+              ["删除时同步删除文件", cfg.mirrorDelete ? "开启" : "关闭"],
+            ];
+            rows.forEach(([key, value], index) => {
+              const row = el(
+                "div",
+                `display:flex;justify-content:space-between;gap:16px;padding:11px 14px;${
+                  index === rows.length - 1 ? "" : "border-bottom:0.5px solid var(--color-border,#e2e8f0);"
+                }`,
+              );
+              row.append(
+                el("span", "font-size:13px;color:var(--color-muted-foreground,#64748b);", key),
+                el("span", "font-size:13px;text-align:right;", value),
+              );
+              list.append(row);
+            });
+            fragment.append(list);
+            fragment.append(
+              el(
+                "p",
+                "font-size:12px;color:var(--color-muted-foreground,#94a3b8);margin:12px 0 0;line-height:1.6;",
+                "提示：Token 需要 Contents 的 Read and write 权限；只勾选 Repository access 是不够的。",
+              ),
+            );
+            return fragment;
+          };
+
+          function render() {
+            if (!alive) return;
+            container.replaceChildren();
+            const root = el("div", "display:flex;flex-direction:column;gap:12px;");
+            root.append(buildStatusBar());
+            if (activeTab === "overview") root.append(buildOverview());
+            else if (activeTab === "history") root.append(buildHistory());
+            else root.append(buildDiagnostics());
+            container.append(root);
+          }
+
+          function syncChrome() {
+            shell.set({
+              header: {
+                title: "GitHub 同步",
+                description: repoLabel(),
+                actions: [
+                  { id: "sync-now", label: "立即同步", variant: "primary" },
+                  { id: "close", label: "关闭", variant: "ghost" },
+                ],
+              },
+              toolbar: [
+                {
+                  type: "tabs",
+                  key: "tab",
+                  value: activeTab,
+                  options: [
+                    { value: "overview", label: "概览" },
+                    { value: "history", label: "记录" },
+                    { value: "diagnostics", label: "诊断" },
+                  ],
+                },
+                { type: "button", key: "refresh", label: "刷新" },
+              ],
+              onAction(id) {
+                if (id === "close") {
+                  requestClose();
+                  return;
+                }
+                if (id === "sync-now") {
+                  void guard(async () => {
+                    if (!(await bootstrap())) return;
+                    context.ui.showNotice("GitHub 同步：开始全量同步…");
+                    await engine.fullSync();
+                    await refreshStatus();
+                  })();
+                }
+              },
+              onChange(key, value) {
+                if (key === "tab") {
+                  activeTab = value;
+                  syncChrome();
+                  render();
+                  return;
+                }
+                if (key === "refresh") void refreshStatus();
+              },
+            });
+          }
+
+          async function refreshStatus() {
+            status = { kind: "checking", text: "正在检查连接…", detail: "" };
+            render();
+            try {
+              if (!(await bootstrap())) {
+                status = { kind: "error", text: "尚未完成设置", detail: "请先在插件设置中填写仓库与 Token" };
+                render();
+                return;
+              }
+              const info = await engine.client.verify();
+              status = {
+                kind: "ok",
+                text: "已连接，Token 可读写",
+                detail: `上次同步 ${engine.state.lastSyncAt ? relativeTime(engine.state.lastSyncAt) : "从未"}${
+                  info.private ? " · 私有仓库" : ""
+                }`,
+              };
+            } catch (error) {
+              status = { kind: "error", text: error.message, detail: "" };
+            }
+            syncChrome();
+            render();
+          }
+
+          syncChrome();
+          render();
+          void refreshStatus();
+
+          return () => {
+            alive = false;
+          };
+        },
+      }),
+    );
+
+    // 命令：打开同步控制台
+    disposers.push(
+      context.commands.register({
+        id: "github-sync-dashboard",
+        title: "GitHub 同步：打开同步控制台",
+        run: guard(async () => {
+          await context.ui.panels.open("github-sync-dashboard");
         }),
       }),
     );
