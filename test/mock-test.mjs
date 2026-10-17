@@ -416,7 +416,7 @@ console.log("\n[9] 未配置时给出提示且不发请求");
   check("没有任何网络请求", calls.length === 0, JSON.stringify(calls));
   check(
     "给出了配置提示",
-    host.notices.some((message) => message.includes("请先在插件设置")),
+    host.notices.some((message) => message.includes("开始配置向导")),
     JSON.stringify(host.notices),
   );
 
@@ -430,10 +430,15 @@ console.log("\n[10] 权限自检命令");
   const dispose = plugin.activate(host.context);
   await sleep(60);
 
-  check("注册了 5 个命令", host.commands.size === 5, [...host.commands.keys()].join(", "));
+  check("注册了 6 个命令", host.commands.size === 6, [...host.commands.keys()].join(", "));
   check(
     "注册了同步控制台面板",
     host.panels.has("github-sync-dashboard"),
+    [...host.panels.keys()].join(", "),
+  );
+  check(
+    "注册了首次配置向导面板",
+    host.panels.has("github-sync-onboarding"),
     [...host.panels.keys()].join(", "),
   );
   await host.commands.get("github-sync-verify").run();

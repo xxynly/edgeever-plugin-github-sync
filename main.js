@@ -567,7 +567,9 @@ export default {
     const bootstrap = async () => {
       engine.config = await engine.readConfig();
       if (!engine.isConfigured()) {
-        context.ui.showNotice("GitHub 同步：请先在插件设置中填写仓库与 Token");
+        context.ui.showNotice(
+          "GitHub 同步：还没连接 GitHub。执行命令「GitHub 同步：开始配置向导」即可完成设置",
+        );
         return false;
       }
       engine.client = new GitHubClient(engine.config, (input, init) => context.network.fetch(input, init));
@@ -981,6 +983,214 @@ export default {
         title: "GitHub 同步：打开同步控制台",
         run: guard(async () => {
           await context.ui.panels.open("github-sync-dashboard");
+        }),
+      }),
+    );
+
+    // 首次配置向导。
+    // 插件可以读写自己的设置项（context.settings.set），
+    // 因此向导能把用户填写的内容直接写入，省掉去设置页逐项填写的麻烦 ——
+    // 这是把「11 个技术化配置项」收敛成「3 个必填字段」的关键。
+    disposers.push(
+      context.ui.panels.register({
+        id: "github-sync-onboarding",
+        title: "连接 GitHub",
+        purpose: "onboarding",
+        presentation: "dialog",
+        mount(container, { shell, requestClose }) {
+          let alive = true;
+          let busy = false;
+          let result = null;
+          let showTokenHelp = false;
+          const draft = {
+            owner: engine.config?.owner ?? "",
+            repo: engine.config?.repo ?? "",
+            token: engine.config?.token ?? "",
+            branch: engine.config?.branch ?? "main",
+            pathPrefix: engine.config?.pathPrefix ?? "notes",
+          };
+
+          const el = (tag, styles, text) => {
+            const node = document.createElement(tag);
+            if (styles) node.setAttribute("style", styles);
+            if (text !== undefined) node.textContent = text;
+            return node;
+          };
+
+          const field = (label, key, placeholder, options = {}) => {
+            const wrap = el("div", "display:flex;flex-direction:column;gap:6px;");
+            wrap.append(el("label", "font-size:13px;font-weight:500;", label));
+            const input = document.createElement("input");
+            input.type = options.secret ? "password" : "text";
+            input.placeholder = placeholder;
+            input.value = draft[key] ?? "";
+            input.setAttribute(
+              "style",
+              "font-size:13px;padding:8px 10px;border-radius:var(--radius-md,8px);"
+              + "border:0.5px solid var(--color-border,#e2e8f0);"
+              + "background:var(--color-background,#fff);color:var(--color-foreground,#111);"
+              + "width:100%;box-sizing:border-box;font-family:inherit;",
+            );
+            input.addEventListener("input", () => {
+              draft[key] = input.value;
+              result = null;
+            });
+            wrap.append(input);
+            if (options.hint) {
+              wrap.append(el("p", "font-size:12px;color:var(--color-muted-foreground,#94a3b8);margin:0;line-height:1.5;", options.hint));
+            }
+            return wrap;
+          };
+
+          function render() {
+            if (!alive) return;
+            container.replaceChildren();
+            const root = el("div", "display:flex;flex-direction:column;gap:14px;");
+
+            root.append(
+              el(
+                "p",
+                "font-size:13px;color:var(--color-muted-foreground,#64748b);margin:0;line-height:1.6;",
+                "填写下面三项即可开始。其余设置都有合理默认值，之后可在插件设置里调整。",
+              ),
+            );
+
+            const row = el("div", "display:grid;grid-template-columns:1fr 1fr;gap:12px;");
+            row.append(field("GitHub 用户名", "owner", "xxynly"));
+            row.append(field("笔记仓库名", "repo", "notes"));
+            root.append(row);
+
+            root.append(
+              field("GitHub Token", "token", "github_pat_...", {
+                secret: true,
+                hint: "需要 Contents 的 Read and write 权限。注意：新建 Token 时权限默认是 No access，必须手动开启。",
+              }),
+            );
+
+            const helpToggle = el(
+              "button",
+              "align-self:flex-start;font-size:12px;padding:0;border:none;background:none;color:var(--color-primary,#2563eb);cursor:pointer;font-family:inherit;",
+              showTokenHelp ? "收起创建步骤" : "如何创建 Token？",
+            );
+            helpToggle.addEventListener("click", () => {
+              showTokenHelp = !showTokenHelp;
+              render();
+            });
+            root.append(helpToggle);
+
+            if (showTokenHelp) {
+              const steps = el(
+                "div",
+                "font-size:12px;line-height:1.8;color:var(--color-muted-foreground,#64748b);"
+                + "padding:12px 14px;border-radius:var(--radius-md,8px);background:var(--color-secondary,#f8fafc);",
+              );
+              const lines = [
+                "1. GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens",
+                "2. 点 Generate new token，Repository access 选 Only select repositories，勾选你的笔记仓库",
+                "3. 往下滚动到 Permissions → Repository permissions → 找到 Contents，设为 Read and write",
+                "4. 生成后复制 github_pat_ 开头的字符串，粘贴到上面",
+              ];
+              lines.forEach((line) => steps.append(el("p", "margin:0 0 6px;", line)));
+              root.append(steps);
+            }
+
+            const action = el(
+              "button",
+              "font-size:13px;font-weight:500;padding:9px 18px;border-radius:var(--radius-md,8px);border:none;"
+              + "background:var(--color-primary,#111);color:var(--color-primary-foreground,#fff);"
+              + "cursor:pointer;font-family:inherit;align-self:flex-start;",
+              busy ? "正在验证…" : "验证并开始同步",
+            );
+            if (busy) action.disabled = true;
+            action.addEventListener("click", () => void submit());
+            root.append(action);
+
+            if (result) {
+              const palette = result.kind === "ok"
+                ? { bg: "var(--color-emerald-50,#ecfdf5)", fg: "var(--color-emerald-700,#047857)" }
+                : { bg: "var(--color-destructive,#fef2f2)", fg: "var(--color-destructive-foreground,#b91c1c)" };
+              const box = el(
+                "div",
+                `padding:12px 14px;border-radius:var(--radius-md,8px);background:${palette.bg};`,
+              );
+              box.append(el("p", `font-size:13px;font-weight:500;color:${palette.fg};margin:0;line-height:1.6;`, result.text));
+              if (result.detail) {
+                box.append(el("p", `font-size:12px;color:${palette.fg};margin:6px 0 0;line-height:1.6;`, result.detail));
+              }
+              root.append(box);
+            }
+
+            container.append(root);
+          }
+
+          async function submit() {
+            if (busy) return;
+            const owner = String(draft.owner ?? "").trim();
+            const repo = String(draft.repo ?? "").trim();
+            const token = String(draft.token ?? "").trim();
+            if (!owner || !repo || !token) {
+              result = { kind: "error", text: "请先填写用户名、仓库名和 Token。" };
+              render();
+              return;
+            }
+
+            busy = true;
+            result = null;
+            render();
+
+            try {
+              await context.settings.set("github.owner", owner);
+              await context.settings.set("github.repo", repo);
+              await context.settings.set("github.token", token);
+              await context.settings.set("github.branch", String(draft.branch ?? "").trim() || "main");
+              await context.settings.set("notes.path", String(draft.pathPrefix ?? "").trim());
+
+              engine.config = await engine.readConfig();
+              engine.client = new GitHubClient(engine.config, (input, init) => context.network.fetch(input, init));
+
+              const info = await engine.client.verify();
+              const summary = await engine.fullSync({ silent: true });
+              busy = false;
+              result = {
+                kind: "ok",
+                text: `连接成功，已同步 ${summary.pushed} 篇笔记${summary.skipped ? `（${summary.skipped} 篇无变化已跳过）` : ""}。`,
+                detail: `分支 ${info.defaultBranch ?? engine.config.branch}${info.private ? "，私有仓库" : ""}。之后每次编辑保存都会自动同步，可在控制台查看状态。`,
+              };
+              render();
+            } catch (error) {
+              busy = false;
+              result = { kind: "error", text: error.message, detail: "修正后可直接在上方修改并重新验证，不必关闭窗口。" };
+              render();
+            }
+          }
+
+          shell.set({
+            header: {
+              title: "连接 GitHub",
+              description: "三步完成：填仓库、填 Token、验证",
+              actions: [{ id: "close", label: "关闭", variant: "ghost" }],
+            },
+            onAction(id) {
+              if (id === "close") requestClose();
+            },
+          });
+
+          render();
+
+          return () => {
+            alive = false;
+          };
+        },
+      }),
+    );
+
+    // 命令：打开配置向导
+    disposers.push(
+      context.commands.register({
+        id: "github-sync-onboarding",
+        title: "GitHub 同步：开始配置向导",
+        run: guard(async () => {
+          await context.ui.panels.open("github-sync-onboarding");
         }),
       }),
     );
