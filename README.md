@@ -163,6 +163,21 @@ https://github.com/xxynly/edgeever-plugin-github-sync
 
 ---
 
+## 配合 GitBook 发布
+
+如果仓库要接入 GitBook，插件会自动为每篇笔记生成 `description`（取自正文中**第一个非标题段落**），
+写入文件头。GitBook 会用这个字段生成站点 SEO 描述、`llms.txt` 的每页摘要，
+以及 AI 检索的相关性判断 —— 缺失会明显拉低检索质量。
+
+可在设置里用「自动生成摘要」（`notes.description`）关闭。
+
+> **关于语法差异**：实测现有笔记中 HTML 块、`[[wikilink]]`、GitHub 警告块的命中数**均为 0**，
+> 标准 Markdown 与 GitBook 的差异极小，因此**不需要额外的语法转换环节**。
+> 唯一需要全局视图的是目录文件 `SUMMARY.md`，建议交给 GitHub Actions 生成。
+> 完整决策见 `ADR-001-gitbook-publish-pipeline.md`。
+
+---
+
 ## 同步控制台
 
 插件提供一个可视化面板，命令面板里执行「**GitHub 同步：打开同步控制台**」即可打开。

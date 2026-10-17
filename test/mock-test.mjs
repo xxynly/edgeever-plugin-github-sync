@@ -238,6 +238,11 @@ console.log("\n[1] 启动时全量补推");
   check("正文内容正确写入", file?.content.includes("这是正文。"));
   check("YAML 头信息已写入", file?.content.startsWith("---\ntitle: \"入门指南\""));
   check("frontmatter 含 tags", file?.content.includes('tags: ["指南"]'));
+  check(
+    "自动生成 description（取正文首段，不是标题）",
+    file?.content.includes('description: "这是正文。"'),
+    file?.content,
+  );
   check("中文经 base64 往返无损", file?.content.includes("# 入门指南"));
 
   dispose();

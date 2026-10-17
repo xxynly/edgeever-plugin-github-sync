@@ -71,6 +71,31 @@ function deriveFileName(note) {
   return "未命名";
 }
 
+/**
+ * 从正文提取一句摘要，写入 frontmatter 的 description。
+ * GitBook 会把 description 用于三处：站点 SEO meta、llms.txt 的每页摘要、
+ * AI 检索的相关性判断 —— 缺失会明显拉低检索质量。
+ */
+function deriveDescription(markdown) {
+  const lines = String(markdown ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    // 跳过空行、分隔线与标题行 —— description 不应等于标题
+    .filter((line) => line && line !== "---" && !/^#{1,6}\s/.test(line))
+    .map((line) =>
+      line
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/[*_`>]/g, "")
+        .trim(),
+    )
+    .filter(Boolean);
+
+  const first = lines[0] ?? "";
+  if (!first) return "";
+  return first.length > 120 ? `${first.slice(0, 119)}…` : first;
+}
+
 function joinPath(...parts) {
   return parts
     .map((part) => String(part ?? "").replace(/^\/+|\/+$/g, ""))
@@ -258,7 +283,7 @@ class SyncEngine {
 
   async readConfig() {
     const get = (key) => this.context.settings.get(key);
-    const [owner, repo, token, branch, pathPrefix, frontmatter, autoPush, idleSeconds, mirrorDelete, syncOnStartup, flushOnHide] =
+    const [owner, repo, token, branch, pathPrefix, frontmatter, description, autoPush, idleSeconds, mirrorDelete, syncOnStartup, flushOnHide] =
       await Promise.all([
         get("github.owner"),
         get("github.repo"),
@@ -266,6 +291,7 @@ class SyncEngine {
         get("github.branch"),
         get("notes.path"),
         get("notes.frontmatter"),
+        get("notes.description"),
         get("sync.auto"),
         get("sync.idle.seconds"),
         get("sync.mirror.delete"),
@@ -285,6 +311,7 @@ class SyncEngine {
         ? seconds * 1000
         : DEFAULT_IDLE_SECONDS * 1000,
       frontmatter: frontmatter !== false,
+      description: description !== false,
       mirrorDelete: mirrorDelete === true,
       syncOnStartup: syncOnStartup !== false,
       flushOnHide: flushOnHide !== false,
@@ -375,7 +402,12 @@ class SyncEngine {
     const body = note.contentMarkdown ?? "";
     if (!this.config.frontmatter) return body;
 
-    const lines = ["---", `title: ${yamlScalar(note.title ?? "")}`, `edgeever_id: ${note.id}`];
+    const lines = ["---", `title: ${yamlScalar(note.title ?? "")}`];
+    if (this.config.description) {
+      const description = deriveDescription(body);
+      if (description) lines.push(`description: ${yamlScalar(description)}`);
+    }
+    lines.push(`edgeever_id: ${note.id}`);
     if (note.updatedAt) lines.push(`updated: ${yamlScalar(note.updatedAt)}`);
     if (Array.isArray(note.tags) && note.tags.length > 0) {
       lines.push(`tags: [${note.tags.map((tag) => yamlScalar(tag)).join(", ")}]`);

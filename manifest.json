@@ -2,7 +2,7 @@
   "type": "plugin",
   "id": "com.xxynly.github-sync",
   "name": "GitHub Sync",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "apiVersion": "2",
   "settingsUi": "host",
   "description": "保存笔记后自动推送到 GitHub 仓库，以 Markdown 源文件形式保存。",
@@ -74,6 +74,13 @@
         "type": "boolean",
         "label": "写入 YAML 头信息",
         "description": "在文件开头写入 title、tags、更新时间等元数据",
+        "default": true
+      },
+      {
+        "key": "notes.description",
+        "type": "boolean",
+        "label": "自动生成摘要",
+        "description": "从正文首段提取 description 写入文件头。GitBook 的 SEO、llms.txt 与 AI 检索都会用到",
         "default": true
       },
       {
